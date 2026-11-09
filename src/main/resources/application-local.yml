@@ -1,0 +1,15 @@
+# Local development only. Staging and prod never load this file.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,modulith   # module map for review
+
+stageminute:
+  analysis:
+    # The fake speech to text and judge (#15.2, AD-128): local only. With no setting there is no vendor and
+    # /v1/analyze answers 502; any profile other than local or test refuses to start with this on (AD-131). Scenario: ok, short_take,
+    # low_audio, not_english, no_speech or vendor_failure; the delay shows the app's "Taking a bit longer".
+    fake-vendors: true
+    fake-scenario: ok
+    fake-delay-ms: 0

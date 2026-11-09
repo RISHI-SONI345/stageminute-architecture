@@ -1,0 +1,164 @@
+spring:
+  application:
+    name: stageminute-server
+  # Local development: server/.env (git-ignored) supplies the STAGEMINUTE_DB_* values. Staging and prod
+  # set them as real environment variables; the file is optional.
+  config:
+    import: optional:file:.env[.properties]
+  datasource:
+    # No default on purpose: a server with no database named does not start (fail closed).
+    url: ${STAGEMINUTE_DB_URL}
+    username: ${STAGEMINUTE_DB_USER}
+    password: ${STAGEMINUTE_DB_PASSWORD}
+  flyway:
+    # Flyway owns the schema (AD-54). Wiping a database is for tests only, which turn this on themselves.
+    clean-disabled: true
+  modulith:
+    events:
+      # A listener that was running when the server stopped is run again at start (one server, AD-33; AD-87).
+      republish-outstanding-events-on-restart: true
+      staleness:
+        # A listener stuck "processing" is marked failed, and then the retry job picks it up.
+        processing: PT10M
+        check-interval: PT1M
+      jdbc:
+        schema-initialization:
+          enabled: false     # V1__baseline.sql creates event_publication (AD-62)
+  threads:
+    virtual:
+      enabled: true          # AD-06: blocking vendor calls on virtual threads
+  servlet:
+    multipart:
+      max-file-size: 8MB     # 06 §1; larger uploads get a loud 413
+      max-request-size: 9MB
+      file-size-threshold: 10MB   # above the request limit: the audio stays in memory, never a temp file (rule 4, AD-129)
+  mvc:
+    problemdetails:
+      enabled: true          # RFC 9457 (AD-08)
+  jackson:
+    property-naming-strategy: SNAKE_CASE   # the wire uses snake_case (06-API)
+
+springdoc:
+  api-docs:
+    enabled: false           # the OpenAPI file is made by a test and committed (AD-08); no live spec page
+
+server:
+  shutdown: graceful         # drain on deploy (07 F-117)
+
+stageminute:
+  # Secret that keys the hashes of device ids and IP addresses (F-086). No default on purpose: the server does
+  # not start without one. Set STAGEMINUTE_HASH_PEPPER in server/.env (at least 32 characters).
+  hash-pepper: ${STAGEMINUTE_HASH_PEPPER:}
+  privacy:
+    # The version of the privacy policy and AI consent text. A new version asks every user again (F-079).
+    policy-version: "2026-10-17"
+  content:
+    # The Fix Library texts (#16.2, C-70): label and How line per fix id. The default is the copy of content/fixes
+    # that Gradle puts into the jar, so the file ships with the server (also in the Docker image, #30). A blank
+    # value, a path that names no file, or a fix id with no text stops the server at start.
+    fixes-path: ${STAGEMINUTE_FIXES_PATH:classpath:content-fixes/en.json}
+  topics:
+    # "1" fails startup when a style and level holds fewer live topics than the minimum (release builds, #53 and #31).
+    # Anything else only logs a warning. Same name as the content check: TOPICS_ENFORCE_MIN.
+    enforce-min: ${TOPICS_ENFORCE_MIN:}
+  jobs:
+    # Scheduled jobs run unless this is false (tests turn it off and call the jobs themselves).
+    enabled: true
+    stale-reservations:
+      # How often the 48 h release job looks (#59); one server at a time, the lock lasts at most lock-for.
+      every: PT15M
+      lock-for: PT10M
+    failed-start-purge:
+      # How often rows of failed_start_log older than failed_start_retention_days (90) are removed (#20.1, 03 section 3).
+      every: PT6H
+      lock-for: PT5M
+    event-retry:
+      # How often a failed event listener (a vendor delete that did not go through) is tried again (AD-87, #18.1).
+      every: PT5M
+      lock-for: PT4M
+  vendors:
+    # The real vendors (#19.1, AD-151). A blank key means no real client: with the fakes off every call fails closed and
+    # /v1/analyze answers 502. Staging and prod do not start without both keys. Keys come from the environment or the
+    # secret store, never from this file. The Gemini model is pinned by its full id (a changed answer id is counted).
+    deepgram:
+      api-key: ${DEEPGRAM_API_KEY:}
+      base-url: ${DEEPGRAM_BASE_URL:https://api.deepgram.com}
+      model: ${DEEPGRAM_MODEL:nova-3}
+    gemini:
+      api-key: ${GEMINI_API_KEY:}
+      base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
+      model: ${GEMINI_MODEL:gemini-3.8-flash}
+  clerk:
+    # Clerk Frontend API address and its public keys (AD-53). Blank means the server does not start.
+    issuer: ${CLERK_ISSUER:}
+    jwks-url: ${CLERK_JWKS_URL:}
+    # Values of the `azp` claim we accept, comma separated. A token with an `azp` that is not listed is refused,
+    # so an empty list refuses every token that carries one (fail closed).
+    authorized-parties: ${CLERK_AUTHORIZED_PARTIES:}
+    # Svix signing secret of POST /v1/webhooks/clerk. Blank turns the endpoint off: it answers 503 to everyone.
+    webhook-secret: ${CLERK_WEBHOOK_SECRET:}
+    # Clerk Backend API key, used only to delete a Clerk user when the account is deleted (#18.1, AD-149). Blank: nothing
+    # is sent in local and test; the server will not start without it in staging and prod.
+    secret-key: ${CLERK_SECRET_KEY:}
+    api-url: ${CLERK_API_URL:https://api.clerk.com}
+  revenuecat:
+    # Secret (server) key, used only to delete a customer when the account is deleted. Blank: nothing is sent (no
+    # RevenueCat account until ticket #22).
+    secret-key: ${REVENUECAT_SECRET_KEY:}
+    api-url: ${REVENUECAT_API_URL:https://api.revenuecat.com}
+  posthog:
+    # Personal API key with the person:write scope, project id and API host, used only to delete a person when the
+    # account is deleted. Blank: nothing is sent (no PostHog account until ticket #7).
+    host: ${POSTHOG_API_HOST:https://us.posthog.com}
+    project-id: ${POSTHOG_PROJECT_ID:}
+    personal-api-key: ${POSTHOG_PERSONAL_API_KEY:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info   # fail closed: the module map is in application-local.yml only
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never      # the public page says UP or DOWN, nothing else
+      group:
+        # Alive: the process runs. It never asks the database, so a database outage does not restart the server.
+        liveness:
+          include: livenessState
+        # Ready: the database answers and the settings can be read. The deploy and the uptime check use this
+        # one (gap G3, 11-PATTERNS-AUDIT.md).
+        readiness:
+          include: readinessState,db,settingsLoaded
+
+logging:
+  level:
+    root: INFO
+    # Tomcat's wire loggers print the raw request (headers and body) at DEBUG. Pinned so a loud root level
+    # or a copied setting can never put an upload into a log line (F-081, AD-86; LogScrubbingTest).
+    org.apache.coyote: WARN
+    org.apache.tomcat.util.net: WARN
+    # Spring prints handler arguments, JSON bodies (100 characters at DEBUG, all at TRACE) and exception texts
+    # from loggers under these two.
+    org.springframework.web: INFO
+    org.springframework.http: INFO
+  # One JSON object per line; the logging context (requestId, userId) is part of every line (AD-86).
+  structured:
+    format:
+      console: ecs
+
+# Sentry (AD-86). No address means Sentry is off (fail closed). The address comes from the environment:
+# STAGEMINUTE_SENTRY_DSN in server/.env on this PC, a real environment variable on the servers.
+sentry:
+  dsn: ${STAGEMINUTE_SENTRY_DSN:}
+  send-default-pii: false     # no IP, no user name, no email
+  max-request-body-size: none # never a request body
+  max-breadcrumbs: 0          # breadcrumbs can hold URLs and log text
+  # No traces-sample-rate on purpose: any value turns tracing on. Errors only, and no trace headers go to vendors.
+  trace-propagation-targets: []
+  attach-server-name: false
+  environment: ${SPRING_PROFILES_ACTIVE:local}   # staging events are not mixed with prod
+  logging:
+    minimum-event-level: error
+    minimum-breadcrumb-level: error

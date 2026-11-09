@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "StageMinute judge labels v2",
+  "description": "Labels and words only. No score, no number of points. The server checks every field again after parsing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "steps",
+    "step_sentences",
+    "relevance",
+    "clarity",
+    "conciseness",
+    "accuracy",
+    "fillers",
+    "run_on",
+    "verdict",
+    "try_line",
+    "rewrite",
+    "strongest_sentence",
+    "strongest_why",
+    "language_items"
+  ],
+  "properties": {
+    "steps": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": { "type": "string", "enum": ["strong", "weak", "missing"] }
+    },
+    "step_sentences": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": { "type": ["integer", "null"], "minimum": 0 }
+    },
+    "relevance": { "type": "integer", "minimum": 1, "maximum": 4 },
+    "clarity": { "type": "integer", "minimum": 1, "maximum": 4 },
+    "conciseness": { "type": "integer", "minimum": 1, "maximum": 4 },
+    "accuracy": { "type": "integer", "minimum": 1, "maximum": 4 },
+    "fillers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "label": { "type": "string", "enum": ["filler", "meaningful", "hedge"] }
+        }
+      }
+    },
+    "run_on": { "type": "boolean" },
+    "verdict": { "type": ["string", "null"] },
+    "try_line": { "type": ["string", "null"] },
+    "rewrite": { "type": ["string", "null"] },
+    "strongest_sentence": { "type": ["integer", "null"], "minimum": 0 },
+    "strongest_why": { "type": ["string", "null"] },
+    "language_items": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "sentence", "first_word", "last_word", "suggestion"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["grammar", "word_choice", "swap"] },
+          "sentence": { "type": "integer", "minimum": 0 },
+          "first_word": { "type": "integer", "minimum": 0 },
+          "last_word": { "type": "integer", "minimum": 0 },
+          "suggestion": { "type": "string" }
+        }
+      }
+    }
+  }
+}
